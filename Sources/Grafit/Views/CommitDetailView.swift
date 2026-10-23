@@ -48,13 +48,12 @@ struct CommitDetailView: View {
 
             switch tab {
             case .diff:
-                HSplitView {
+                FileListSplit {
                     List(files, selection: $selectedFile) { file in
                         FileChangeRow(file: file)
                     }
-                    .frame(minWidth: 200, idealWidth: 320)
+                } detail: {
                     DiffView(diff: diff)
-                        .frame(minWidth: 300)
                 }
             case .info:
                 infoView

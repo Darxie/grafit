@@ -185,6 +185,7 @@ struct RepoActions {
     let fetch: () -> Void
     let pull: () -> Void
     let push: () -> Void
+    let openInFinder: () -> Void
     let close: () -> Void
 }
 
@@ -247,6 +248,9 @@ struct RepoCommands: Commands {
                 .keyboardShortcut("l", modifiers: [.command, .shift])
             Button("Push") { actions?.push() }
                 .keyboardShortcut("p", modifiers: [.command, .shift])
+            Divider()
+            Button("Open in Finder") { actions?.openInFinder() }
+                .keyboardShortcut("r", modifiers: [.command, .shift])
         }
     }
 }

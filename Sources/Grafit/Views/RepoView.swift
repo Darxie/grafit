@@ -74,6 +74,7 @@ struct RepoView: View {
             fetch: { fetch() },
             pull: { pull(rebase: nil) },
             push: { push(force: false) },
+            openInFinder: { openInFinder() },
             close: onClose
         ))
     }
@@ -162,12 +163,16 @@ struct RepoView: View {
         }
         ToolbarItemGroup(placement: .primaryAction) {
             Button { sheet = .commit } label: {
-                Label(model.status.totalCount > 0 ? "Commit (\(model.status.totalCount))" : "Commit",
-                      systemImage: "checkmark.circle")
-                    .labelStyle(.titleAndIcon)
+                ToolbarLabel(model.status.totalCount > 0 ? "Commit (\(model.status.totalCount))" : "Commit",
+                             symbol: "checkmark.circle.fill", color: .systemGreen)
             }
             .help("Commit (⌘K)")
-            Menu {
+            SplitToolbarButton {
+                if model.status.totalCount > 0 { sheet = .stash }
+            } label: {
+                ToolbarLabel(model.stashes.isEmpty ? "Stash" : "Stash (\(model.stashes.count))",
+                             symbol: "archivebox.fill", color: .systemPurple)
+            } menu: {
                 Button("Stash changes…") { sheet = .stash }
                     .disabled(model.status.totalCount == 0)
                 if let latest = model.stashes.first {
@@ -175,26 +180,26 @@ struct RepoView: View {
                     Button("Pop \(latest.name): \(latest.message)") { handle(.stashApply(latest, pop: true)) }
                     Button("Apply \(latest.name)") { handle(.stashApply(latest, pop: false)) }
                 }
-            } label: {
-                Label(model.stashes.isEmpty ? "Stash" : "Stash (\(model.stashes.count))", systemImage: "tray.and.arrow.down")
-            } primaryAction: {
-                if model.status.totalCount > 0 { sheet = .stash }
             }
             .help("Stash uncommitted changes; stashes are listed in the sidebar")
-            Button { fetch() } label: { Label("Fetch", systemImage: "arrow.down.circle") }
+            Button { fetch() } label: { ToolbarLabel("Fetch", symbol: "arrow.triangle.2.circlepath", color: .systemTeal) }
                 .help("Fetch all remotes (⇧⌘F)")
-            Menu {
+            SplitToolbarButton {
+                pull(rebase: nil)
+            } label: {
+                ToolbarLabel("Pull", symbol: "arrow.down.circle.fill", color: .systemBlue)
+            } menu: {
                 Button("Pull (merge)") { pull(rebase: false) }
                 Button("Pull (rebase)") { pull(rebase: true) }
                 Divider()
                 Button("Fetch all") { fetch() }
-            } label: {
-                Label("Pull", systemImage: "arrow.down.to.line")
-            } primaryAction: {
-                pull(rebase: nil)
             }
             .help("Pull (⇧⌘L)")
-            Menu {
+            SplitToolbarButton {
+                push(force: false)
+            } label: {
+                ToolbarLabel("Push", symbol: "arrow.up.circle.fill", color: .systemOrange)
+            } menu: {
                 Button("Push") { push(force: false) }
                 Button("Force push (with lease)…") {
                     sheet = .confirm(ConfirmRequest(
@@ -203,12 +208,22 @@ struct RepoView: View {
                         confirmLabel: "Force push", destructive: true
                     ) { _ in push(force: true) })
                 }
-            } label: {
-                Label("Push", systemImage: "arrow.up.to.line")
-            } primaryAction: {
-                push(force: false)
             }
             .help("Push (⇧⌘P)")
+            SplitToolbarButton {
+                openInFinder()
+            } label: {
+                ToolbarLabel("Finder", symbol: "folder.fill", color: .systemCyan)
+            } menu: {
+                Button("Open in Finder") { openInFinder() }
+                Button("Open in Terminal") { openInTerminal() }
+                Divider()
+                Button("Copy Path") {
+                    NSPasteboard.general.clearContents()
+                    NSPasteboard.general.setString(model.repo.url.path, forType: .string)
+                }
+            }
+            .help("Open the repository folder in Finder (⇧⌘R)")
             if model.isLoading || model.busyMessage != nil {
                 ProgressView().controlSize(.small)
             }
@@ -271,6 +286,16 @@ struct RepoView: View {
             if let i = Int(select.dropFirst(7)), commits.indices.contains(i) { model.selectedSha = commits[i].sha }
         default: break
         }
+    }
+
+    private func openInFinder() {
+        NSWorkspace.shared.open(model.repo.url)
+    }
+
+    private func openInTerminal() {
+        NSWorkspace.shared.open([model.repo.url],
+                                withApplicationAt: URL(fileURLWithPath: "/System/Applications/Utilities/Terminal.app"),
+                                configuration: NSWorkspace.OpenConfiguration())
     }
 
     // MARK: - Remote operations
@@ -459,7 +484,7 @@ struct WorkingTreeSummary: View {
     }
 
     var body: some View {
-        HSplitView {
+        FileListSplit {
             VStack(spacing: 0) {
                 List(selection: $selected) {
                     Section("Unstaged") {
@@ -472,9 +497,8 @@ struct WorkingTreeSummary: View {
                 Button("Open commit dialog…", action: openCommit)
                     .padding(6)
             }
-            .frame(minWidth: 200, idealWidth: 320)
+        } detail: {
             DiffView(diff: diff)
-                .frame(minWidth: 300)
         }
         .task(id: selected) {
             guard let entry = entries.first(where: { $0.id == selected }) else {
@@ -483,5 +507,68 @@ struct WorkingTreeSummary: View {
             }
             diff = ParsedDiff((try? await model.repo.diff(for: entry.file, source: entry.source)) ?? "")
         }
+    }
+}
+
+/// Toolbar label with a colored SF Symbol. The image is made non-template so the
+/// toolbar keeps its color instead of tinting it gray like the other buttons.
+struct ToolbarLabel: View {
+    let title: String
+    let symbol: String
+    let color: NSColor
+
+    init(_ title: String, symbol: String, color: NSColor) {
+        self.title = title
+        self.symbol = symbol
+        self.color = color
+    }
+
+    var body: some View {
+        Label {
+            Text(title)
+        } icon: {
+            Image(nsImage: Self.image(symbol, color))
+        }
+        .labelStyle(.titleAndIcon)
+    }
+
+    private static func image(_ symbol: String, _ color: NSColor) -> NSImage {
+        // Filled circles get a white glyph on the colored disc; other symbols are a single color.
+        let colors: [NSColor] = symbol.hasSuffix("circle.fill") ? [.white, color] : [color]
+        let config = NSImage.SymbolConfiguration(pointSize: 14, weight: .medium)
+            .applying(NSImage.SymbolConfiguration(paletteColors: colors))
+        let image = NSImage(systemSymbolName: symbol, accessibilityDescription: nil)?
+            .withSymbolConfiguration(config) ?? NSImage()
+        image.isTemplate = false
+        return image
+    }
+}
+
+/// A colored main button plus a chevron menu. Toolbar `Menu` labels are always
+/// rendered as gray templates, so the colored part has to be a plain `Button`.
+struct SplitToolbarButton<Label: View, MenuContent: View>: View {
+    let action: () -> Void
+    @ViewBuilder let label: () -> Label
+    @ViewBuilder let menu: () -> MenuContent
+
+    var body: some View {
+        HStack(spacing: 0) {
+            Button(action: action, label: label)
+            Menu(content: menu) {
+                Image(nsImage: Self.chevron)
+            }
+            .menuIndicator(.hidden)
+            .fixedSize()
+        }
+    }
+
+    /// Small fixed-size chevron; the toolbar would otherwise scale a symbol to full icon size.
+    private static var chevron: NSImage {
+        let config = NSImage.SymbolConfiguration(pointSize: 8, weight: .bold)
+            .applying(NSImage.SymbolConfiguration(paletteColors: [.secondaryLabelColor]))
+        let image = NSImage(systemSymbolName: "chevron.down", accessibilityDescription: "More")?
+            .withSymbolConfiguration(config) ?? NSImage()
+        image.isTemplate = false
+        return image
     }
 }

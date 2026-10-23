@@ -44,6 +44,7 @@ config, SSH keys and credential helpers. Its workflow is inspired by
 
 **Remotes and settings**
 - Fetch (⇧⌘F), pull with merge or rebase (⇧⌘L), push or force push with lease (⇧⌘P)
+- Color-coded toolbar, and a Finder button that opens the repository folder in Finder or Terminal (⇧⌘R)
 - Settings (⌘,): global and per-repository name and email, commits to load, clone folder, merge tool, and pull and fetch defaults
 - Dark mode by default (⇧⌘D)
 
@@ -81,6 +82,7 @@ open -a Grafit ~/code/my-project
 | Refresh | ⌘R |
 | Commit | ⌘K, then ⌘↩ to commit |
 | Fetch, pull or push | ⇧⌘F, ⇧⌘L or ⇧⌘P |
+| Open repository in Finder | ⇧⌘R |
 | Highlight same author | ⇧⌘A |
 | Dark mode | ⇧⌘D |
 | Settings | ⌘, |

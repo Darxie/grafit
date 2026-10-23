@@ -159,3 +159,51 @@ struct FileChangeRow: View {
         .help(file.oldPath.map { "\($0) → \(file.path)" } ?? file.path)
     }
 }
+
+/// File list on the left, diff on the right. The list keeps a fixed width that the user
+/// can drag (shared by all bottom panes and remembered), so the diff gets the rest of the space.
+struct FileListSplit<List: View, Detail: View>: View {
+    @ViewBuilder let list: () -> List
+    @ViewBuilder let detail: () -> Detail
+
+    @AppStorage("fileListWidth") private var width = 280.0
+    @State private var dragStart: Double?
+
+    var body: some View {
+        GeometryReader { geo in
+            HStack(spacing: 0) {
+                list()
+                    .frame(width: clamped(width, total: geo.size.width))
+                divider(total: geo.size.width)
+                detail()
+                    .frame(maxWidth: .infinity)
+            }
+        }
+    }
+
+    private func clamped(_ value: Double, total: CGFloat) -> CGFloat {
+        min(max(value, 160), max(160, total - 300))
+    }
+
+    private func divider(total: CGFloat) -> some View {
+        Rectangle()
+            .fill(Color(nsColor: .separatorColor))
+            .frame(width: 1)
+            .padding(.horizontal, 3)
+            .contentShape(Rectangle())
+            .onHover { inside in
+                if inside { NSCursor.resizeLeftRight.push() } else { NSCursor.pop() }
+            }
+            .gesture(
+                DragGesture(minimumDistance: 1, coordinateSpace: .global)
+                    .onChanged { value in
+                        let start = dragStart ?? Double(clamped(width, total: total))
+                        dragStart = start
+                        width = Double(clamped(start + value.translation.width, total: total))
+                    }
+                    .onEnded { _ in dragStart = nil }
+            )
+            .onTapGesture(count: 2) { width = 280 }
+            .help("Drag to resize, double-click to reset")
+    }
+}
