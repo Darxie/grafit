@@ -20,14 +20,23 @@ struct CommitListView: View {
     let onAction: (CommitAction) -> Void
     @FocusState private var focused: Bool
 
+    @AppStorage("column.graphMax") private var graphMax = 160.0
+    @AppStorage("column.author") private var authorWidth = 160.0
+    @AppStorage("column.date") private var dateWidth = 120.0
+    @AppStorage("column.sha") private var shaWidth = 80.0
+
+    private static let maxBadges = 3
+
     private static let dateFormatter: DateFormatter = {
         let f = DateFormatter()
         f.dateFormat = "yyyy-MM-dd HH:mm"
         return f
     }()
 
-    private var graphWidth: CGFloat {
-        CGFloat(min(model.maxLanes, 24)) * GraphStyle.laneWidth + 6
+    /// Graph width for one row: just its own lanes (so the message starts right after them),
+    /// capped by the user-resizable maximum.
+    private func graphWidth(_ row: GraphRow) -> CGFloat {
+        min(CGFloat(row.laneCount) * GraphStyle.laneWidth + 6, graphMax)
     }
 
     var body: some View {
@@ -39,7 +48,7 @@ struct CommitListView: View {
                 ScrollView(.vertical) {
                     LazyVStack(spacing: 0) {
                         if model.status.totalCount > 0 && model.filterText.isEmpty {
-                            WorkingTreeRow(model: model, graphWidth: graphWidth)
+                            WorkingTreeRow(model: model, graphWidth: GraphStyle.laneWidth + 6)
                         }
                         ForEach(visible, id: \.self) { index in
                             row(index)
@@ -69,9 +78,17 @@ struct CommitListView: View {
             Text("Graph / Message")
                 .padding(.leading, 8)
                 .frame(maxWidth: .infinity, alignment: .leading)
-            Text("Author").frame(width: 160, alignment: .leading)
-            Text("Date").frame(width: 120, alignment: .leading)
-            Text("SHA").frame(width: 76, alignment: .leading)
+                .overlay(alignment: .leading) {
+                    ColumnResizer(width: $graphMax, range: 30...600, growsRight: true)
+                        .help("Drag to set the maximum graph width")
+                        .offset(x: graphMax - ColumnResizer.handleWidth / 2)
+                }
+            ColumnResizer(width: $authorWidth, range: 60...400, growsRight: false)
+            Text("Author").frame(width: authorWidth, alignment: .leading)
+            ColumnResizer(width: $dateWidth, range: 60...300, growsRight: false)
+            Text("Date").frame(width: dateWidth, alignment: .leading)
+            ColumnResizer(width: $shaWidth, range: 40...320, growsRight: false)
+            Text("SHA").frame(width: shaWidth, alignment: .leading)
         }
         .font(.caption.weight(.semibold))
         .foregroundStyle(.secondary)
@@ -95,16 +112,20 @@ struct CommitListView: View {
 
         HStack(spacing: 0) {
             if index < model.graph.count {
-                GraphCell(row: model.graph[index], isHead: isHead, width: graphWidth)
+                GraphCell(row: model.graph[index], isHead: isHead, width: graphWidth(model.graph[index]))
+                    .padding(.trailing, 4)
             }
             HStack(spacing: 4) {
                 if isHead {
                     RefBadge(text: model.currentBranch.map { "HEAD → \($0)" } ?? "HEAD (detached)", kind: .head)
                 }
-                ForEach(refs) { ref in
-                    if !(isHead && ref.kind == .localBranch && ref.shortName == model.currentBranch) {
-                        RefBadge(text: ref.shortName, kind: ref.kind)
-                    }
+                let badges = refs.filter { !(isHead && $0.kind == .localBranch && $0.shortName == model.currentBranch) }
+                ForEach(badges.prefix(Self.maxBadges)) { ref in
+                    RefBadge(text: ref.shortName, kind: ref.kind)
+                }
+                if badges.count > Self.maxBadges {
+                    RefBadge(text: "+\(badges.count - Self.maxBadges)", kind: .other)
+                        .help(badges.dropFirst(Self.maxBadges).map(\.shortName).joined(separator: "\n"))
                 }
                 Text(commit.subject)
                     .fontWeight(isHead ? .semibold : .regular)
@@ -112,17 +133,23 @@ struct CommitListView: View {
                     .truncationMode(.tail)
                     .foregroundStyle(commit.isMerge && !isSelected ? .secondary : .primary)
             }
-            .frame(maxWidth: .infinity, alignment: .leading)
+            .frame(minWidth: 0, maxWidth: .infinity, alignment: .leading)
+            .clipped()
+            Spacer().frame(width: ColumnResizer.handleWidth)
             Text(commit.authorName)
                 .lineLimit(1)
-                .frame(width: 160, alignment: .leading)
+                .frame(width: authorWidth, alignment: .leading)
+            Spacer().frame(width: ColumnResizer.handleWidth)
             Text(Self.dateFormatter.string(from: commit.authorDate))
                 .monospacedDigit()
-                .frame(width: 120, alignment: .leading)
-            Text(commit.sha.prefix(8))
+                .lineLimit(1)
+                .frame(width: dateWidth, alignment: .leading)
+            Spacer().frame(width: ColumnResizer.handleWidth)
+            Text(commit.sha.prefix(shaWidth > 200 ? 40 : 8))
                 .font(.system(.body, design: .monospaced))
                 .foregroundStyle(.secondary)
-                .frame(width: 76, alignment: .leading)
+                .lineLimit(1)
+                .frame(width: shaWidth, alignment: .leading)
         }
         .font(.system(size: 12))
         .frame(height: GraphStyle.rowHeight)
@@ -218,6 +245,38 @@ struct WorkingTreeRow: View {
         .background(isSelected ? Color.accentColor.opacity(0.22) : Color.clear)
         .contentShape(Rectangle())
         .onTapGesture { model.selectedSha = RepoModel.workingTreeId }
+    }
+}
+
+/// Drag handle in the column header. `growsRight` columns get wider when dragged right
+/// (handle on their right edge); the others when dragged left (handle on their left edge).
+struct ColumnResizer: View {
+    static let handleWidth: CGFloat = 9
+
+    @Binding var width: Double
+    let range: ClosedRange<Double>
+    let growsRight: Bool
+    @State private var startWidth: Double?
+
+    var body: some View {
+        Rectangle()
+            .fill(Color.secondary.opacity(0.4))
+            .frame(width: 1, height: 14)
+            .frame(width: Self.handleWidth, height: 22)
+            .contentShape(Rectangle())
+            .onHover { inside in
+                if inside { NSCursor.resizeLeftRight.push() } else { NSCursor.pop() }
+            }
+            .gesture(
+                DragGesture(minimumDistance: 1, coordinateSpace: .global)
+                    .onChanged { value in
+                        let start = startWidth ?? width
+                        startWidth = start
+                        let delta = growsRight ? value.translation.width : -value.translation.width
+                        width = min(max(start + delta, range.lowerBound), range.upperBound)
+                    }
+                    .onEnded { _ in startWidth = nil }
+            )
     }
 }
 

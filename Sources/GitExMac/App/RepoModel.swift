@@ -10,7 +10,6 @@ final class RepoModel {
 
     var commits: [Commit] = []
     var graph: [GraphRow] = []
-    var maxLanes = 1
     var refs: [GitRef] = []
     var refsBySha: [String: [GitRef]] = [:]
     var headSha: String?
@@ -78,7 +77,6 @@ final class RepoModel {
             if newCommits.map(\.sha) != commits.map(\.sha) {
                 commits = newCommits
                 graph = GraphLayout.layout(newCommits)
-                maxLanes = max(1, graph.map(\.laneCount).max() ?? 1)
             }
             refs = newRefs
             refsBySha = Dictionary(grouping: newRefs, by: \.target)

@@ -67,5 +67,6 @@ struct GraphCell: View {
             }
         }
         .frame(width: width, height: GraphStyle.rowHeight)
+        .clipped()
     }
 }

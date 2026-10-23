@@ -104,3 +104,19 @@ final class GitExMacTests: XCTestCase {
         XCTAssertEqual(files.map(\.path), ["f.txt"])
     }
 }
+
+final class RefTreeTests: XCTestCase {
+    func testGroupsBranchesIntoFolders() {
+        let names = ["main", "feature/login", "feature/ui/dark", "bugfix/crash", "develop"]
+        let refs = names.map { GitRef(fullName: "refs/heads/\($0)", target: "x", kind: .localBranch) }
+        let tree = RefNode.tree(refs, idPrefix: "local:") { $0.shortName }
+
+        XCTAssertEqual(tree.map(\.name), ["bugfix", "feature", "develop", "main"])
+        let feature = tree[1]
+        XCTAssertTrue(feature.isFolder)
+        XCTAssertEqual(feature.id, "local:feature/")
+        XCTAssertEqual(feature.leafCount, 2)
+        XCTAssertEqual(feature.children.map(\.name), ["ui", "login"])
+        XCTAssertEqual(feature.children[0].children.first?.ref?.shortName, "feature/ui/dark")
+    }
+}
