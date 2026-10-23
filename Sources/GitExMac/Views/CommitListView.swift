@@ -24,6 +24,7 @@ struct CommitListView: View {
     let onAction: (CommitAction) -> Void
     @FocusState private var focused: Bool
 
+    @AppStorage("highlightAuthor") private var highlightAuthor = true
     @AppStorage("column.graphMax") private var graphMax = 160.0
     @AppStorage("column.author") private var authorWidth = 160.0
     @AppStorage("column.date") private var dateWidth = 120.0
@@ -45,6 +46,7 @@ struct CommitListView: View {
 
     var body: some View {
         let visible = model.visibleIndices
+        let author = highlightAuthor ? model.selectedCommit.map(Self.authorKey) : nil
         VStack(spacing: 0) {
             header
             Divider()
@@ -55,7 +57,7 @@ struct CommitListView: View {
                             WorkingTreeRow(model: model, graphWidth: GraphStyle.laneWidth + 6)
                         }
                         ForEach(visible, id: \.self) { index in
-                            row(index)
+                            row(index, highlightedAuthor: author)
                                 .id(model.commits[index].sha)
                         }
                     }
@@ -107,12 +109,20 @@ struct CommitListView: View {
         model.selectedSha = model.commits[visible[next]].sha
     }
 
+    /// Commits are matched by email (case-insensitive), falling back to the name.
+    private static func authorKey(_ commit: Commit) -> String {
+        commit.authorEmail.isEmpty ? commit.authorName.lowercased() : commit.authorEmail.lowercased()
+    }
+
+    static let authorHighlight = Color(red: 0.95, green: 0.70, blue: 0.20)
+
     @ViewBuilder
-    private func row(_ index: Int) -> some View {
+    private func row(_ index: Int, highlightedAuthor: String?) -> some View {
         let commit = model.commits[index]
         let refs = (model.refsBySha[commit.sha] ?? []).sorted { $0.kind < $1.kind }
         let isSelected = commit.sha == model.selectedSha
         let isHead = commit.sha == model.headSha
+        let isSameAuthor = highlightedAuthor == Self.authorKey(commit)
 
         HStack(spacing: 0) {
             if index < model.graph.count {
@@ -141,6 +151,8 @@ struct CommitListView: View {
             .clipped()
             Spacer().frame(width: ColumnResizer.handleWidth)
             Text(commit.authorName)
+                .foregroundStyle(isSameAuthor ? Self.authorHighlight : .primary)
+                .fontWeight(isSameAuthor ? .semibold : .regular)
                 .lineLimit(1)
                 .frame(width: authorWidth, alignment: .leading)
             Spacer().frame(width: ColumnResizer.handleWidth)
@@ -157,7 +169,8 @@ struct CommitListView: View {
         }
         .font(.system(size: 12))
         .frame(height: GraphStyle.rowHeight)
-        .background(isSelected ? Color.accentColor.opacity(focused ? 0.28 : 0.16) : Color.clear)
+        .background(isSelected ? Color.accentColor.opacity(focused ? 0.28 : 0.16)
+                    : isSameAuthor ? Self.authorHighlight.opacity(0.13) : Color.clear)
         .contentShape(Rectangle())
         .onTapGesture {
             model.selectedSha = commit.sha

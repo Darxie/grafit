@@ -172,12 +172,15 @@ struct RepoCommands: Commands {
     let tabs: TabsModel
     @FocusedValue(\.repoActions) private var actions
     @AppStorage(Appearance.key) private var darkMode = true
+    @AppStorage("highlightAuthor") private var highlightAuthor = true
 
     var body: some Commands {
         CommandGroup(after: .toolbar) {
             Toggle("Dark Mode", isOn: $darkMode)
                 .keyboardShortcut("d", modifiers: [.command, .shift])
                 .onChange(of: darkMode) { _, _ in Appearance.apply() }
+            Toggle("Highlight Commits by Same Author", isOn: $highlightAuthor)
+                .keyboardShortcut("a", modifiers: [.command, .shift])
         }
         CommandGroup(replacing: .newItem) {
             Button("New Tab…") { tabs.openWithPanel() }

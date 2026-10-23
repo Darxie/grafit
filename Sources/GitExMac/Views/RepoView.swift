@@ -254,7 +254,7 @@ struct RepoView: View {
     }
 
     /// GITEXMAC_DEBUG_ACTION opens a dialog on launch (development / screenshots):
-    /// commit, stash, conflicts, rebase, reword, clone, settings.
+    /// commit, stash, conflicts, rebase, reword, clone, settings, select:<row>.
     private func runDebugAction() async {
         guard let action = ProcessInfo.processInfo.environment["GITEXMAC_DEBUG_ACTION"] else { return }
         while model.commits.isEmpty { try? await Task.sleep(for: .milliseconds(100)) }
@@ -267,6 +267,8 @@ struct RepoView: View {
         case "reword": handle(.reword(commits[min(1, commits.count - 1)]))
         case "clone": TabsModel.shared.showClone = true
         case "settings": openSettings()
+        case let select where select.hasPrefix("select:"):
+            if let i = Int(select.dropFirst(7)), commits.indices.contains(i) { model.selectedSha = commits[i].sha }
         default: break
         }
     }

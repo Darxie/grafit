@@ -112,6 +112,7 @@ struct IdentitySettings: View {
 struct GeneralSettings: View {
     @AppStorage("commitLimit") private var commitLimit = 5000
     @AppStorage(Appearance.key) private var darkMode = true
+    @AppStorage("highlightAuthor") private var highlightAuthor = true
     @AppStorage("cloneFolder") private var cloneFolder = FileManager.default.homeDirectoryForCurrentUser
         .appendingPathComponent("repos").path
 
@@ -139,6 +140,7 @@ struct GeneralSettings: View {
             Section("App") {
                 Toggle("Dark mode", isOn: $darkMode)
                     .onChange(of: darkMode) { _, _ in Appearance.apply() }
+                Toggle("Highlight commits by the selected commit's author", isOn: $highlightAuthor)
                 Picker("Commits to load", selection: $commitLimit) {
                     ForEach([1000, 2000, 5000, 10000, 20000, 50000], id: \.self) { Text("\($0)").tag($0) }
                 }

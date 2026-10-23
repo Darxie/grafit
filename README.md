@@ -31,6 +31,7 @@ open -a GitExMac /path/to/repo
 - Merge conflicts: banner + resolver with ours/theirs, merge tool, editor and "mark as resolved", then continue/abort
 - Interactive rebase from any commit on the current branch (pick/reword/edit/squash/fixup/drop, drag to reorder) and "Edit commit message…"
 - Clone (⇧⌘O) and create (⇧⌘N) repositories from the app; they open as tabs
+- Selecting a commit highlights all commits by the same author (toggle: View menu, ⇧⌘A, or Settings)
 - Dark mode by default (toggle in View → Dark Mode, ⇧⌘D)
 - Fetch (⇧⌘F), pull merge/rebase (⇧⌘L), push / force-with-lease (⇧⌘P), banner to continue/abort a merge/rebase in progress
 
