@@ -13,6 +13,10 @@ struct GitExMacApp: App {
         .commands {
             RepoCommands(tabs: TabsModel.shared)
         }
+
+        Settings {
+            SettingsView(tabs: TabsModel.shared)
+        }
     }
 }
 
@@ -117,11 +121,17 @@ struct MainWindowView: View {
                     .navigationTitle(model.name)
                     .navigationSubtitle(model.repo.url.path)
             } else {
-                WelcomeView(open: { url in Task { await tabs.open(url) } }, error: tabs.openError)
+                WelcomeView(open: { url in Task { await tabs.open(url) } },
+                            clone: { tabs.showClone = true },
+                            create: { tabs.initWithPanel() },
+                            error: tabs.openError)
                     .navigationTitle("Git Extensions")
             }
         }
         .frame(minWidth: 900, minHeight: 550)
+        .sheet(isPresented: $tabs.showClone) {
+            CloneSheet(tabs: tabs)
+        }
         .task {
             // Keep branch / change counts of all tabs fresh while the app is running.
             while !Task.isCancelled {
@@ -174,6 +184,10 @@ struct RepoCommands: Commands {
                 .keyboardShortcut("t")
             Button("Open Repository…") { tabs.openWithPanel() }
                 .keyboardShortcut("o")
+            Button("Clone Repository…") { tabs.showClone = true }
+                .keyboardShortcut("o", modifiers: [.command, .shift])
+            Button("New Repository…") { tabs.initWithPanel() }
+                .keyboardShortcut("n", modifiers: [.command, .shift])
         }
         CommandGroup(replacing: .saveItem) {
             Button("Close Tab") {

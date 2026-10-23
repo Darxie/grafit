@@ -18,6 +18,7 @@ struct CommitDialog: View {
     @State private var working = false
     @State private var confirmDiscardFiles = false
     @State private var confirmDiscardLines = false
+    @State private var identity = ""
 
     private var unstaged: [FileChange] { model.status.unstaged }
     private var staged: [FileChange] { model.status.staged }
@@ -54,7 +55,13 @@ struct CommitDialog: View {
             }
         }
         .frame(minWidth: 1000, idealWidth: 1300, minHeight: 650, idealHeight: 850)
-        .task { await model.refreshStatus(); selectFirstIfNeeded() }
+        .task {
+            await model.refreshStatus()
+            selectFirstIfNeeded()
+            let name = await model.repo.config("user.name") ?? ""
+            let email = await model.repo.config("user.email") ?? ""
+            identity = name.isEmpty && email.isEmpty ? "" : "as \(name) <\(email)>"
+        }
         .onChange(of: unstagedSelection) { _, new in
             if !new.isEmpty { stagedSelection = []; diffSource = .unstaged }
             Task { await loadDiff() }
@@ -195,6 +202,9 @@ struct CommitDialog: View {
             HStack {
                 Text("Commit message").font(.headline)
                 Spacer()
+                Text(identity.isEmpty ? "No identity set — see Settings (⌘,)" : identity)
+                    .foregroundStyle(identity.isEmpty ? .red : .secondary)
+                    .help("Author and committer; change in Settings → Identity")
                 if let branch = model.currentBranch {
                     Text("on \(branch)").foregroundStyle(.secondary)
                 }
@@ -205,6 +215,12 @@ struct CommitDialog: View {
                 .padding(4)
                 .background(Color(nsColor: .textBackgroundColor))
                 .overlay(RoundedRectangle(cornerRadius: 4).stroke(Color.secondary.opacity(0.3)))
+            if !model.conflicts.isEmpty {
+                Label("\(model.conflicts.count) file(s) still have merge conflicts. Resolve them (or stage the fixed files) before committing.",
+                      systemImage: "exclamationmark.triangle.fill")
+                    .font(.caption)
+                    .foregroundStyle(.orange)
+            }
             if let error {
                 ScrollView {
                     Text(error)

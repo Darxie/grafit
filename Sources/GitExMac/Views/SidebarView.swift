@@ -10,11 +10,15 @@ struct RefNode: Identifiable {
     var isFolder: Bool { ref == nil }
     var leafCount: Int { isFolder ? children.reduce(0) { $0 + $1.leafCount } : 1 }
 
-    static func tree(_ refs: [GitRef], idPrefix: String, name: (GitRef) -> String) -> [RefNode] {
-        build(refs.map { (name($0).split(separator: "/").map(String.init), $0) }, idPrefix: idPrefix)
+    /// `descending` sorts newest-first by natural order (used for version tags).
+    static func tree(_ refs: [GitRef], idPrefix: String, descending: Bool = false, name: (GitRef) -> String) -> [RefNode] {
+        build(refs.map { (name($0).split(separator: "/").map(String.init), $0) }, idPrefix: idPrefix, descending: descending)
     }
 
-    private static func build(_ items: [(components: [String], ref: GitRef)], idPrefix: String) -> [RefNode] {
+    private static func build(_ items: [(components: [String], ref: GitRef)], idPrefix: String, descending: Bool) -> [RefNode] {
+        func ordered(_ a: String, _ b: String) -> Bool {
+            a.localizedStandardCompare(b) == (descending ? .orderedDescending : .orderedAscending)
+        }
         var folders: [String: [(components: [String], ref: GitRef)]] = [:]
         var leaves: [RefNode] = []
         for item in items {
@@ -25,11 +29,11 @@ struct RefNode: Identifiable {
                 folders[first, default: []].append((Array(item.components.dropFirst()), item.ref))
             }
         }
-        let folderNodes = folders.keys.sorted { $0.localizedStandardCompare($1) == .orderedAscending }.map { key in
+        let folderNodes = folders.keys.sorted(by: ordered).map { key in
             RefNode(id: idPrefix + key + "/", name: key, ref: nil,
-                    children: build(folders[key]!, idPrefix: idPrefix + key + "/"))
+                    children: build(folders[key]!, idPrefix: idPrefix + key + "/", descending: descending))
         }
-        return folderNodes + leaves.sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
+        return folderNodes + leaves.sorted { ordered($0.name, $1.name) }
     }
 }
 
@@ -43,7 +47,8 @@ struct SidebarView: View {
     @State private var filter = ""
     @AppStorage("sidebar.branchesExpanded") private var branchesExpanded = true
     @AppStorage("sidebar.remotesExpanded") private var remotesExpanded = true
-    @AppStorage("sidebar.tagsExpanded") private var tagsExpanded = false
+    @AppStorage("sidebar.tagsSectionExpanded") private var tagsExpanded = true
+    @AppStorage("sidebar.stashesExpanded") private var stashesExpanded = true
 
     private var expansionKey: String { "sidebar.expanded:" + model.repo.url.path }
 
@@ -63,8 +68,24 @@ struct SidebarView: View {
             .sorted { $0.name < $1.name }
     }
 
+    /// Tags newest first; with many plain version tags ("4.1.0") they are grouped by major version
+    /// ("4.x"), or by major.minor ("4.1.x") when they all share one major version.
     private var tagTree: [RefNode] {
-        RefNode.tree(model.tags.filter(matches), idPrefix: "tag:") { $0.shortName }
+        let tags = model.tags.filter(matches)
+        guard tags.count > 15 else {
+            return RefNode.tree(tags, idPrefix: "tag:", descending: true) { $0.shortName }
+        }
+        func versionGroup(_ name: String, depth: Int) -> String? {
+            guard !name.contains("/") else { return nil }
+            let parts = name.split(separator: ".")
+            guard parts.count > depth, parts[0].contains(where: \.isNumber) else { return nil }
+            return parts.prefix(depth).joined(separator: ".") + ".x"
+        }
+        let majors = Set(tags.compactMap { versionGroup($0.shortName, depth: 1) })
+        let depth = majors.count == 1 ? 2 : 1
+        return RefNode.tree(tags, idPrefix: "tag:", descending: true) { ref in
+            versionGroup(ref.shortName, depth: depth).map { "\($0)/\(ref.shortName)" } ?? ref.shortName
+        }
     }
 
     var body: some View {
@@ -82,6 +103,13 @@ struct SidebarView: View {
                         ForEach(remoteTrees, id: \.name) { remote in
                             folder(RefNode(id: "remote:\(remote.name)", name: remote.name, ref: nil, children: remote.nodes),
                                    icon: "network")
+                        }
+                    }
+                }
+                if !model.stashes.isEmpty {
+                    Section("Stashes", isExpanded: $stashesExpanded) {
+                        ForEach(model.stashes) { stash in
+                            stashRow(stash)
                         }
                     }
                 }
@@ -143,6 +171,26 @@ struct SidebarView: View {
                     .foregroundStyle(.secondary)
             }
         })
+    }
+
+    private func stashRow(_ stash: Stash) -> some View {
+        Label {
+            VStack(alignment: .leading, spacing: 0) {
+                Text(stash.message).lineLimit(1)
+                Text(stash.name).font(.caption).foregroundStyle(.secondary)
+            }
+        } icon: {
+            Image(systemName: "tray.full").foregroundStyle(.secondary)
+        }
+        .help(stash.commit.subject)
+        .contentShape(Rectangle())
+        .onTapGesture { model.selectedSha = stash.commit.sha }
+        .contextMenu {
+            Button("Pop (apply and drop)") { onAction(.stashApply(stash, pop: true)) }
+            Button("Apply") { onAction(.stashApply(stash, pop: false)) }
+            Divider()
+            Button("Drop…") { onAction(.stashDrop(stash)) }
+        }
     }
 
     private func refRow(_ ref: GitRef, label: String) -> some View {

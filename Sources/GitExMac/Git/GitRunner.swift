@@ -23,17 +23,19 @@ struct GitRunner {
     }
 
     @discardableResult
-    func run(_ args: [String], input: Data? = nil, okStatuses: Set<Int32> = [0]) async throws -> String {
-        let data = try await runData(args, input: input, okStatuses: okStatuses)
+    func run(_ args: [String], input: Data? = nil, okStatuses: Set<Int32> = [0],
+             env: [String: String] = [:]) async throws -> String {
+        let data = try await runData(args, input: input, okStatuses: okStatuses, env: env)
         return String(decoding: data, as: UTF8.self)
     }
 
-    func runData(_ args: [String], input: Data? = nil, okStatuses: Set<Int32> = [0]) async throws -> Data {
+    func runData(_ args: [String], input: Data? = nil, okStatuses: Set<Int32> = [0],
+                 env: [String: String] = [:]) async throws -> Data {
         let dir = workingDirectory
         return try await withCheckedThrowingContinuation { continuation in
             DispatchQueue.global(qos: .userInitiated).async {
                 do {
-                    continuation.resume(returning: try Self.runBlocking(args, in: dir, input: input, okStatuses: okStatuses))
+                    continuation.resume(returning: try Self.runBlocking(args, in: dir, input: input, okStatuses: okStatuses, extraEnv: env))
                 } catch {
                     continuation.resume(throwing: error)
                 }
@@ -41,7 +43,8 @@ struct GitRunner {
         }
     }
 
-    private static func runBlocking(_ args: [String], in dir: URL, input: Data?, okStatuses: Set<Int32>) throws -> Data {
+    private static func runBlocking(_ args: [String], in dir: URL, input: Data?, okStatuses: Set<Int32>,
+                                    extraEnv: [String: String]) throws -> Data {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: GitRunner.gitPath)
         process.arguments = ["-c", "core.quotepath=off", "-c", "color.ui=never"] + args
@@ -49,6 +52,9 @@ struct GitRunner {
         var env = ProcessInfo.processInfo.environment
         env["GIT_TERMINAL_PROMPT"] = "0"
         env["LC_ALL"] = "C.UTF-8"
+        // Never block on an interactive editor; messages are always passed explicitly.
+        env["GIT_EDITOR"] = "true"
+        env.merge(extraEnv) { _, new in new }
         process.environment = env
 
         let outPipe = Pipe()

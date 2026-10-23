@@ -13,6 +13,10 @@ enum CommitAction {
     case reset(Commit)
     case deleteBranch(GitRef)
     case deleteTag(GitRef)
+    case reword(Commit)
+    case interactiveRebase(Commit)
+    case stashApply(Stash, pop: Bool)
+    case stashDrop(Stash)
 }
 
 struct CommitListView: View {
@@ -193,6 +197,9 @@ struct CommitListView: View {
         Button("Cherry-pick this commit") { onAction(.cherryPick(commit)) }
         Button("Revert this commit") { onAction(.revert(commit)) }
         Button("Reset \(current) to here…") { onAction(.reset(commit)) }
+        Divider()
+        Button("Edit commit message…") { onAction(.reword(commit)) }
+        Button("Interactive rebase from here…") { onAction(.interactiveRebase(commit)) }
         if !localBranches.isEmpty || !remoteBranches.isEmpty || !tags.isEmpty {
             Divider()
             ForEach(localBranches + remoteBranches) { ref in

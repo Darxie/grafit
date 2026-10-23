@@ -75,6 +75,11 @@ struct FileChange: Identifiable, Hashable {
     let path: String
     let oldPath: String?
     let kind: ChangeKind
+    /// Two-letter porcelain code for unmerged files ("UU", "AA", "DU", "UD", ...).
+    var conflictCode: String? = nil
+
+    var deletedByUs: Bool { conflictCode?.first == "D" }
+    var deletedByThem: Bool { conflictCode?.last == "D" }
 
     var id: String { (oldPath ?? "") + "\u{0}" + path }
     var fileName: String { (path as NSString).lastPathComponent }
@@ -102,4 +107,51 @@ enum DiffSource: Hashable {
     case commit(sha: String, parent: String?)
     case staged
     case unstaged
+}
+
+struct Stash: Identifiable, Hashable {
+    let index: Int
+    let commit: Commit
+
+    var id: String { commit.sha }
+    var name: String { "stash@{\(index)}" }
+    /// "On main: message" -> "message"
+    var message: String {
+        let subject = commit.subject
+        guard let range = subject.range(of: ": ") else { return subject }
+        return String(subject[range.upperBound...])
+    }
+}
+
+enum ConfigScope {
+    case global, local
+    var flag: String { self == .global ? "--global" : "--local" }
+}
+
+enum ConflictSide {
+    case ours, theirs
+}
+
+enum RebaseAction: String, CaseIterable, Identifiable {
+    case pick, reword, edit, squash, fixup, drop
+    var id: String { rawValue }
+
+    var help: String {
+        switch self {
+        case .pick: "Keep the commit"
+        case .reword: "Keep the commit, change its message"
+        case .edit: "Stop after this commit to amend it"
+        case .squash: "Meld into the previous commit, combine messages"
+        case .fixup: "Meld into the previous commit, keep previous message"
+        case .drop: "Remove the commit"
+        }
+    }
+}
+
+struct RebaseStep: Identifiable, Hashable {
+    let commit: Commit
+    var action: RebaseAction = .pick
+    var message: String
+
+    var id: String { commit.sha }
 }

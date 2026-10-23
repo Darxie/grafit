@@ -18,6 +18,7 @@ final class TabsModel {
     private(set) var tabs: [RepoModel] = []
     private(set) var selectedId: String?
     var openError: String?
+    var showClone = false
 
     var selected: RepoModel? { tabs.first { $0.id == selectedId } }
 
@@ -61,6 +62,29 @@ final class TabsModel {
     func openWithPanel() {
         guard let url = chooseRepositoryFolder() else { return }
         Task { await open(url) }
+    }
+
+    /// Asks for a folder, runs `git init` there (unless it already is a repository) and opens it.
+    func initWithPanel() {
+        let panel = NSOpenPanel()
+        panel.canChooseDirectories = true
+        panel.canChooseFiles = false
+        panel.canCreateDirectories = true
+        panel.prompt = "Create Repository"
+        panel.message = "Choose or create an empty folder for the new repository"
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        Task {
+            let top = await GitRepository.findTopLevel(of: url)?.resolvingSymlinksInPath()
+            if top != url.resolvingSymlinksInPath() {
+                do {
+                    try await GitRepository.initRepository(at: url)
+                } catch {
+                    openError = error.localizedDescription
+                    return
+                }
+            }
+            await open(url)
+        }
     }
 
     func close(_ id: String) {

@@ -19,13 +19,18 @@ struct GitRepository {
 
     // MARK: - Reading
 
+    private static let logFormat = ["%H", "%P", "%an", "%ae", "%at", "%cn", "%ct", "%s"].joined(separator: "%x1f") + "%x1e"
+
     func log(limit: Int) async throws -> [Commit] {
-        let format = ["%H", "%P", "%an", "%ae", "%at", "%cn", "%ct", "%s"].joined(separator: "%x1f") + "%x1e"
         let out = try await git.run([
             "log", "--branches", "--remotes", "--tags", "HEAD",
-            "--topo-order", "--max-count=\(limit)", "--format=\(format)",
+            "--topo-order", "--max-count=\(limit)", "--format=\(Self.logFormat)",
         ], okStatuses: [0, 128])
-        return out.split(separator: "\u{1e}").compactMap { record in
+        return Self.parseCommits(out)
+    }
+
+    private static func parseCommits(_ out: String) -> [Commit] {
+        out.split(separator: "\u{1e}").compactMap { record in
             let fields = record.trimmingCharacters(in: .newlines).split(separator: "\u{1f}", omittingEmptySubsequences: false)
             guard fields.count >= 8 else { return nil }
             return Commit(
@@ -115,7 +120,7 @@ struct GitRepository {
             if x == "!" { continue }
             let conflicted = x == "U" || y == "U" || (x == "A" && y == "A") || (x == "D" && y == "D")
             if conflicted {
-                result.unstaged.append(FileChange(path: path, oldPath: nil, kind: .unmerged))
+                result.unstaged.append(FileChange(path: path, oldPath: nil, kind: .unmerged, conflictCode: String([x, y])))
                 continue
             }
             if x != " " {
@@ -179,8 +184,19 @@ struct GitRepository {
     }
 
     func containingBranches(sha: String) async -> [String] {
-        let out = (try? await git.run(["branch", "-a", "--contains", sha, "--format=%(refname:short)"])) ?? ""
-        return out.split(separator: "\n").map(String.init).filter { !$0.hasSuffix("/HEAD") }
+        Self.shortBranchNames((try? await git.run(["branch", "-a", "--contains", sha, "--format=%(refname)"])) ?? "")
+    }
+
+    /// Full ref names -> short names, without symbolic remote HEADs ("refs/remotes/origin/HEAD").
+    static func shortBranchNames(_ output: String) -> [String] {
+        output.split(separator: "\n").map(String.init)
+            .filter { !$0.hasSuffix("/HEAD") }
+            .map { name in
+                for prefix in ["refs/heads/", "refs/remotes/"] where name.hasPrefix(prefix) {
+                    return String(name.dropFirst(prefix.count))
+                }
+                return name
+            }
     }
 
     // MARK: - Index / working tree
@@ -320,8 +336,9 @@ struct GitRepository {
         try await git.run(["fetch", "--all", "--prune"])
     }
 
-    func pull(rebase: Bool) async throws -> String {
-        try await git.run(["pull", rebase ? "--rebase" : "--no-rebase"])
+    /// `rebase == nil` follows the pull.rebase setting.
+    func pull(rebase: Bool?) async throws -> String {
+        try await git.run(["pull"] + (rebase.map { [$0 ? "--rebase" : "--no-rebase"] } ?? []))
     }
 
     func push(branch: String, setUpstream: Bool, force: Bool) async throws -> String {
@@ -333,5 +350,160 @@ struct GitRepository {
 
     func hasUpstream(branch: String) async -> Bool {
         (try? await git.run(["rev-parse", "--abbrev-ref", "\(branch)@{upstream}"])) != nil
+    }
+
+    // MARK: - Config
+
+    /// Reads a config value; without a scope it returns the effective value (local over global).
+    func config(_ key: String, scope: ConfigScope? = nil) async -> String? {
+        let out = try? await git.run(["config"] + (scope.map { [$0.flag] } ?? []) + ["--get", key])
+        let value = out?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        return value.isEmpty ? nil : value
+    }
+
+    /// Sets a config value; an empty value removes the key.
+    func setConfig(_ key: String, _ value: String, scope: ConfigScope) async throws {
+        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmed.isEmpty {
+            try await git.run(["config", scope.flag, "--unset", key], okStatuses: [0, 5])
+        } else {
+            try await git.run(["config", scope.flag, key, trimmed])
+        }
+    }
+
+    // MARK: - Stash
+
+    func stashes() async -> [Stash] {
+        let out = (try? await git.run(["stash", "list", "--format=\(Self.logFormat)"])) ?? ""
+        return Self.parseCommits(out).enumerated().map { Stash(index: $0.offset, commit: $0.element) }
+    }
+
+    func stash(message: String?, includeUntracked: Bool, keepIndex: Bool) async throws -> String {
+        var args = ["stash", "push"]
+        if includeUntracked { args.append("--include-untracked") }
+        if keepIndex { args.append("--keep-index") }
+        if let message, !message.isEmpty { args += ["-m", message] }
+        return try await git.run(args)
+    }
+
+    func stashApply(_ stash: Stash, pop: Bool) async throws -> String {
+        try await git.run(["stash", pop ? "pop" : "apply", stash.name])
+    }
+
+    func stashDrop(_ stash: Stash) async throws -> String {
+        try await git.run(["stash", "drop", stash.name])
+    }
+
+    // MARK: - Conflicts
+
+    /// Resolves a conflicted file with one side's version and stages the result.
+    func resolve(_ file: FileChange, using side: ConflictSide) async throws {
+        let sideDeleted = side == .ours ? file.deletedByUs : file.deletedByThem
+        if sideDeleted {
+            try await git.run(["rm", "-q", "--", file.path])
+        } else {
+            try await git.run(["checkout", side == .ours ? "--ours" : "--theirs", "--", file.path])
+            try await git.run(["add", "--", file.path])
+        }
+    }
+
+    func markResolved(_ paths: [String]) async throws {
+        try await git.run(["add", "--"] + paths)
+    }
+
+    /// Runs the configured `merge.tool` for one file (blocks until the tool is closed).
+    func runMergeTool(_ path: String) async throws -> String {
+        try await git.run(["mergetool", "-y", "--", path])
+    }
+
+    func workingFile(_ path: String) -> String {
+        (try? String(contentsOf: url.appendingPathComponent(path), encoding: .utf8)) ?? ""
+    }
+
+    // MARK: - History rewriting
+
+    func isAncestorOfHead(_ sha: String) async -> Bool {
+        (try? await git.run(["merge-base", "--is-ancestor", sha, "HEAD"])) != nil
+    }
+
+    /// Commits from `sha` up to HEAD, oldest first, for an interactive rebase that starts at `sha`.
+    func commitsForRebase(from sha: String) async throws -> (base: String?, commits: [Commit]) {
+        let parents = try await git.run(["rev-list", "--parents", "-n", "1", sha])
+            .split(separator: " ").dropFirst().map { String($0).trimmingCharacters(in: .whitespacesAndNewlines) }
+        let base = parents.first
+        let range = base.map { "\($0)..HEAD" } ?? "HEAD"
+        let out = try await git.run(["log", "--reverse", "--topo-order", "--format=\(Self.logFormat)", range])
+        return (base, Self.parseCommits(out))
+    }
+
+    func remoteBranchesContaining(_ sha: String) async -> [String] {
+        Self.shortBranchNames((try? await git.run(["branch", "-r", "--contains", sha, "--format=%(refname)"])) ?? "")
+    }
+
+    /// Runs `git rebase -i` non-interactively with a prepared todo list.
+    /// Rewording is done with `exec git commit --amend -F <file>` so no editor is needed.
+    func interactiveRebase(base: String?, steps: [RebaseStep]) async throws -> String {
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent("gitexmac-rebase-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+
+        var todo: [String] = []
+        for (i, step) in steps.enumerated() {
+            switch step.action {
+            case .reword:
+                let file = dir.appendingPathComponent("msg-\(i)")
+                try step.message.write(to: file, atomically: true, encoding: .utf8)
+                todo.append("pick \(step.commit.sha)")
+                todo.append("exec git commit --amend --allow-empty --only --no-verify -F '\(file.path)'")
+            default:
+                todo.append("\(step.action.rawValue) \(step.commit.sha)")
+            }
+        }
+        let todoFile = dir.appendingPathComponent("todo")
+        try (todo.joined(separator: "\n") + "\n").write(to: todoFile, atomically: true, encoding: .utf8)
+
+        var args = ["rebase", "-i", "--autostash"]
+        args.append(base ?? "--root")
+        return try await git.run(args, env: ["GIT_SEQUENCE_EDITOR": "cp '\(todoFile.path)'"])
+    }
+
+    /// Changes the message of a commit on the current branch.
+    func reword(_ sha: String, message: String) async throws -> String {
+        if let head = try? await git.run(["rev-parse", "HEAD"]),
+           head.trimmingCharacters(in: .whitespacesAndNewlines) == sha {
+            return try await git.run(["commit", "--amend", "--only", "--allow-empty", "--no-verify", "-F", "-"],
+                                     input: Data(message.utf8))
+        }
+        let (base, commits) = try await commitsForRebase(from: sha)
+        if commits.contains(where: \.isMerge) {
+            throw GitError(command: "reword", output: "The commits after \(sha.prefix(8)) contain merge commits; rewording would flatten them.", status: 1)
+        }
+        let steps = commits.map { c in
+            RebaseStep(commit: c, action: c.sha == sha ? .reword : .pick, message: c.sha == sha ? message : c.subject)
+        }
+        return try await interactiveRebase(base: base, steps: steps)
+    }
+
+    // MARK: - Clone / init
+
+    /// Clones `remote` into `parent/name`; returns the new repository folder.
+    static func clone(_ remote: String, into parent: URL, name: String) async throws -> URL {
+        let runner = GitRunner(workingDirectory: parent)
+        try await runner.run(["clone", "--", remote, name])
+        return parent.appendingPathComponent(name)
+    }
+
+    static func initRepository(at folder: URL, branch: String = "main") async throws {
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        try await GitRunner(workingDirectory: folder).run(["init", "-b", branch])
+    }
+
+    /// "git@github.com:org/my-repo.git" -> "my-repo"
+    static func folderName(forRemote remote: String) -> String {
+        var name = remote.trimmingCharacters(in: .whitespacesAndNewlines)
+        while name.hasSuffix("/") { name.removeLast() }
+        name = String(name.split(whereSeparator: { $0 == "/" || $0 == ":" }).last ?? "")
+        if name.hasSuffix(".git") { name.removeLast(4) }
+        return name
     }
 }

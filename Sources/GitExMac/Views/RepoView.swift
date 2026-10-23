@@ -6,6 +6,10 @@ enum RepoSheet: Identifiable {
     case input(InputRequest)
     case confirm(ConfirmRequest)
     case reset(Commit)
+    case stash
+    case conflicts
+    case rebase(RebaseRequest)
+    case reword(Commit, message: String, pushedTo: [String])
 
     var id: String {
         switch self {
@@ -13,6 +17,10 @@ enum RepoSheet: Identifiable {
         case .input(let r): "input-\(r.title)"
         case .confirm(let r): "confirm-\(r.title)"
         case .reset(let c): "reset-\(c.sha)"
+        case .stash: "stash"
+        case .conflicts: "conflicts"
+        case .rebase(let r): "rebase-\(r.base ?? "root")"
+        case .reword(let c, _, _): "reword-\(c.sha)"
         }
     }
 }
@@ -23,6 +31,7 @@ struct RepoView: View {
 
     @State private var sheet: RepoSheet?
     @State private var showOutput = false
+    @Environment(\.openSettings) private var openSettings
 
     var body: some View {
         NavigationSplitView {
@@ -55,9 +64,7 @@ struct RepoView: View {
         } message: {
             Text(model.errorMessage ?? "")
         }
-        .onAppear {
-            if ProcessInfo.processInfo.environment["GITEXMAC_OPEN_COMMIT"] != nil { sheet = .commit }
-        }
+        .task { await runDebugAction() }
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
             Task { await model.reload() }
         }
@@ -65,7 +72,7 @@ struct RepoView: View {
             refresh: { Task { await model.reload() } },
             commit: { sheet = .commit },
             fetch: { fetch() },
-            pull: { pull(rebase: false) },
+            pull: { pull(rebase: nil) },
             push: { push(force: false) },
             close: onClose
         ))
@@ -88,8 +95,15 @@ struct RepoView: View {
         HStack {
             Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(.orange)
             Text(op).fontWeight(.semibold)
-            Text("Resolve conflicts, stage the files, then continue.").foregroundStyle(.secondary)
+            Text(model.conflicts.isEmpty
+                 ? "No conflicts left — continue to finish."
+                 : "\(model.conflicts.count) conflicted file(s).")
+                .foregroundStyle(.secondary)
             Spacer()
+            if !model.conflicts.isEmpty {
+                Button("Resolve conflicts…") { sheet = .conflicts }
+                    .buttonStyle(.borderedProminent)
+            }
             Button("Commit dialog…") { sheet = .commit }
             Button("Continue") {
                 Task { await model.perform("Continuing…") { try await model.repo.continueOperation(op) } }
@@ -153,6 +167,20 @@ struct RepoView: View {
                     .labelStyle(.titleAndIcon)
             }
             .help("Commit (⌘K)")
+            Menu {
+                Button("Stash changes…") { sheet = .stash }
+                    .disabled(model.status.totalCount == 0)
+                if let latest = model.stashes.first {
+                    Divider()
+                    Button("Pop \(latest.name): \(latest.message)") { handle(.stashApply(latest, pop: true)) }
+                    Button("Apply \(latest.name)") { handle(.stashApply(latest, pop: false)) }
+                }
+            } label: {
+                Label(model.stashes.isEmpty ? "Stash" : "Stash (\(model.stashes.count))", systemImage: "tray.and.arrow.down")
+            } primaryAction: {
+                if model.status.totalCount > 0 { sheet = .stash }
+            }
+            .help("Stash uncommitted changes; stashes are listed in the sidebar")
             Button { fetch() } label: { Label("Fetch", systemImage: "arrow.down.circle") }
                 .help("Fetch all remotes (⇧⌘F)")
             Menu {
@@ -163,7 +191,7 @@ struct RepoView: View {
             } label: {
                 Label("Pull", systemImage: "arrow.down.to.line")
             } primaryAction: {
-                pull(rebase: false)
+                pull(rebase: nil)
             }
             .help("Pull (⇧⌘L)")
             Menu {
@@ -200,6 +228,46 @@ struct RepoView: View {
             ResetSheet(commit: commit, branch: model.currentBranch) { mode in
                 Task { await model.perform("Resetting…") { try await model.repo.reset(to: commit.sha, mode: mode) } }
             } dismiss: { self.sheet = nil }
+        case .stash:
+            StashSheet(changes: model.status.totalCount) { message, untracked, keepIndex in
+                Task {
+                    await model.perform("Stashing…") {
+                        try await model.repo.stash(message: message, includeUntracked: untracked, keepIndex: keepIndex)
+                    }
+                }
+            } dismiss: { self.sheet = nil }
+        case .conflicts:
+            ConflictsSheet(model: model) { self.sheet = nil }
+        case .rebase(let request):
+            InteractiveRebaseSheet(request: request, branch: model.currentBranch ?? "HEAD") { final in
+                Task {
+                    await model.perform("Rebasing…") {
+                        try await model.repo.interactiveRebase(base: final.base, steps: final.steps)
+                    }
+                }
+            } dismiss: { self.sheet = nil }
+        case .reword(let commit, let message, let pushedTo):
+            RewordSheet(commit: commit, message: message, pushedTo: pushedTo) { newMessage in
+                Task { await model.perform("Rewording…") { try await model.repo.reword(commit.sha, message: newMessage) } }
+            } dismiss: { self.sheet = nil }
+        }
+    }
+
+    /// GITEXMAC_DEBUG_ACTION opens a dialog on launch (development / screenshots):
+    /// commit, stash, conflicts, rebase, reword, clone, settings.
+    private func runDebugAction() async {
+        guard let action = ProcessInfo.processInfo.environment["GITEXMAC_DEBUG_ACTION"] else { return }
+        while model.commits.isEmpty { try? await Task.sleep(for: .milliseconds(100)) }
+        let commits = model.commits
+        switch action {
+        case "commit": sheet = .commit
+        case "stash": sheet = .stash
+        case "conflicts": sheet = .conflicts
+        case "rebase": handle(.interactiveRebase(commits[min(3, commits.count - 1)]))
+        case "reword": handle(.reword(commits[min(1, commits.count - 1)]))
+        case "clone": TabsModel.shared.showClone = true
+        case "settings": openSettings()
+        default: break
         }
     }
 
@@ -209,7 +277,7 @@ struct RepoView: View {
         Task { await model.perform("Fetching…") { try await model.repo.fetch() } }
     }
 
-    private func pull(rebase: Bool) {
+    private func pull(rebase: Bool?) {
         Task { await model.perform("Pulling…") { try await model.repo.pull(rebase: rebase) } }
     }
 
@@ -321,6 +389,48 @@ struct RepoView: View {
                     Task { await model.perform("Deleting branch…") { try await repo.deleteBranch(ref.shortName, force: force) } }
                 })
             }
+        case .reword(let commit):
+            Task {
+                guard await repo.isAncestorOfHead(commit.sha) else {
+                    model.errorMessage = "\(commit.shortSha) is not part of \(current). Check out its branch first."
+                    return
+                }
+                let message = (try? await repo.fullMessage(sha: commit.sha))?
+                    .trimmingCharacters(in: .whitespacesAndNewlines) ?? commit.subject
+                let pushed = await repo.remoteBranchesContaining(commit.sha)
+                sheet = .reword(commit, message: message, pushedTo: pushed)
+            }
+        case .interactiveRebase(let commit):
+            Task {
+                guard await repo.isAncestorOfHead(commit.sha) else {
+                    model.errorMessage = "\(commit.shortSha) is not part of \(current). Check out its branch first."
+                    return
+                }
+                do {
+                    let (base, commits) = try await repo.commitsForRebase(from: commit.sha)
+                    if commits.contains(where: \.isMerge) {
+                        model.errorMessage = "The commits from \(commit.shortSha) to HEAD include merge commits. Interactive rebase would flatten them, so start from a commit after the last merge."
+                        return
+                    }
+                    let pushed = await repo.remoteBranchesContaining(commit.sha)
+                    sheet = .rebase(RebaseRequest(
+                        base: base,
+                        steps: commits.map { RebaseStep(commit: $0, message: $0.subject) },
+                        pushedTo: pushed))
+                } catch {
+                    model.errorMessage = error.localizedDescription
+                }
+            }
+        case .stashApply(let stash, let pop):
+            Task { await model.perform(pop ? "Popping stash…" : "Applying stash…") { try await repo.stashApply(stash, pop: pop) } }
+        case .stashDrop(let stash):
+            sheet = .confirm(ConfirmRequest(
+                title: "Drop \(stash.name)?",
+                message: "\"\(stash.message)\" will be deleted.",
+                confirmLabel: "Drop", destructive: true
+            ) { _ in
+                Task { await model.perform("Dropping stash…") { try await repo.stashDrop(stash) } }
+            })
         case .deleteTag(let ref):
             sheet = .confirm(ConfirmRequest(
                 title: "Delete tag \(ref.shortName)?",

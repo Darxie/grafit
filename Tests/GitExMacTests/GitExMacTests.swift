@@ -120,3 +120,12 @@ final class RefTreeTests: XCTestCase {
         XCTAssertEqual(feature.children[0].children.first?.ref?.shortName, "feature/ui/dark")
     }
 }
+
+final class TagTreeTests: XCTestCase {
+    func testVersionTagsSortNewestFirst() {
+        let names = ["4.0.0", "4.10.0", "4.2.1", "5.0.0"]
+        let refs = names.map { GitRef(fullName: "refs/tags/\($0)", target: "x", kind: .tag) }
+        let tree = RefNode.tree(refs, idPrefix: "tag:", descending: true) { $0.shortName }
+        XCTAssertEqual(tree.map(\.name), ["5.0.0", "4.10.0", "4.2.1", "4.0.0"])
+    }
+}

@@ -2,6 +2,8 @@ import SwiftUI
 
 struct WelcomeView: View {
     let open: (URL) -> Void
+    let clone: () -> Void
+    let create: () -> Void
     let error: String?
     @State private var recent = RecentRepos.all
 
@@ -16,6 +18,14 @@ struct WelcomeView: View {
                     if let url = chooseRepositoryFolder() { open(url) }
                 } label: {
                     Label("Open repository…", systemImage: "folder")
+                }
+                .controlSize(.large)
+                Button(action: clone) {
+                    Label("Clone repository…", systemImage: "arrow.down.doc")
+                }
+                .controlSize(.large)
+                Button(action: create) {
+                    Label("New repository…", systemImage: "plus.square.on.square")
                 }
                 .controlSize(.large)
                 if let error {

@@ -35,6 +35,8 @@ struct TabBarView: View {
     private var newTabMenu: some View {
         Menu {
             Button("Open Repository…") { tabs.openWithPanel() }
+            Button("Clone Repository…") { tabs.showClone = true }
+            Button("New Repository…") { tabs.initWithPanel() }
             let openIds = Set(tabs.tabs.map(\.id))
             let recent = RecentRepos.all.filter { !openIds.contains($0) }.prefix(12)
             if !recent.isEmpty {

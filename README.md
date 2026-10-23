@@ -26,6 +26,11 @@ open -a GitExMac /path/to/repo
 - Sidebar: local branches, remotes, tags (double-click to checkout, context menu)
 - Commit dialog (⌘K): stage/unstage/discard files, select lines or hunks in the diff to stage/unstage/discard, amend, push after commit
 - Commit context menu: checkout, create branch/tag, merge, rebase, cherry-pick, revert, reset (soft/mixed/hard), delete branch/tag, copy SHA
+- Settings (⌘,): global and per-repository author name/email, commits to load, clone folder, merge tool, pull/fetch defaults
+- Stash: stash changes (optionally with untracked files), list in the sidebar with diff, pop/apply/drop
+- Merge conflicts: banner + resolver with ours/theirs, merge tool, editor and "mark as resolved", then continue/abort
+- Interactive rebase from any commit on the current branch (pick/reword/edit/squash/fixup/drop, drag to reorder) and "Edit commit message…"
+- Clone (⇧⌘O) and create (⇧⌘N) repositories from the app; they open as tabs
 - Dark mode by default (toggle in View → Dark Mode, ⇧⌘D)
 - Fetch (⇧⌘F), pull merge/rebase (⇧⌘L), push / force-with-lease (⇧⌘P), banner to continue/abort a merge/rebase in progress
 
@@ -35,4 +40,4 @@ open -a GitExMac /path/to/repo
 - `Sources/GitExMac/Graph` — lane layout and drawing
 - `Sources/GitExMac/Views` — SwiftUI windows and dialogs
 
-Dev helpers: `GITEXMAC_SNAPSHOT=/tmp/shot` saves window PNGs after 4s; `GITEXMAC_OPEN_COMMIT=1` opens the commit dialog on launch.
+Dev helpers: `GITEXMAC_SNAPSHOT=/tmp/shot` saves window PNGs after 4s; `GITEXMAC_DEBUG_ACTION=commit|stash|conflicts|rebase|reword|clone|settings` opens that dialog on launch.

@@ -16,6 +16,7 @@ final class RepoModel {
     var currentBranch: String?
     var pendingOperation: String?
     var status = WorkingStatus()
+    var stashes: [Stash] = []
 
     var selectedSha: String?
     var isLoading = false
@@ -23,7 +24,11 @@ final class RepoModel {
     var errorMessage: String?
     var lastOutput: String?
 
-    var commitLimit = 5000
+    /// Configurable in Settings → General.
+    var commitLimit: Int {
+        let value = UserDefaults.standard.integer(forKey: "commitLimit")
+        return value > 0 ? value : 5000
+    }
     var filterText = ""
 
     static let workingTreeId = "__working_tree__"
@@ -35,7 +40,10 @@ final class RepoModel {
     var selectedCommit: Commit? {
         guard let selectedSha, selectedSha != Self.workingTreeId else { return nil }
         return commits.first { $0.sha == selectedSha }
+            ?? stashes.first { $0.commit.sha == selectedSha }?.commit
     }
+
+    var conflicts: [FileChange] { status.unstaged.filter { $0.kind == .unmerged } }
 
     var localBranches: [GitRef] { refs.filter { $0.kind == .localBranch }.sorted { $0.shortName < $1.shortName } }
     var remoteBranches: [GitRef] { refs.filter { $0.kind == .remoteBranch }.sorted { $0.shortName < $1.shortName } }
@@ -65,6 +73,7 @@ final class RepoModel {
         async let branchTask = repo.currentBranch()
         async let statusTask = repo.status()
         async let opTask = repo.pendingOperation()
+        async let stashTask = repo.stashes()
 
         do {
             let newCommits = try await commitsTask
@@ -73,6 +82,7 @@ final class RepoModel {
             currentBranch = await branchTask
             pendingOperation = await opTask
             status = (try? await statusTask) ?? WorkingStatus()
+            stashes = await stashTask
 
             if newCommits.map(\.sha) != commits.map(\.sha) {
                 commits = newCommits
@@ -81,7 +91,8 @@ final class RepoModel {
             refs = newRefs
             refsBySha = Dictionary(grouping: newRefs, by: \.target)
             let keepWorkingTree = selectedSha == Self.workingTreeId && status.totalCount > 0
-            if !keepWorkingTree && (selectedSha == nil || !commits.contains(where: { $0.sha == selectedSha })) {
+            let isKnown = commits.contains { $0.sha == selectedSha } || stashes.contains { $0.commit.sha == selectedSha }
+            if !keepWorkingTree && (selectedSha == nil || !isKnown) {
                 selectedSha = headSha ?? commits.first?.sha
             }
         } catch {
