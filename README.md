@@ -104,3 +104,7 @@ Two environment variables help with screenshots:
 
 - `GRAFIT_SNAPSHOT=/tmp/shot` saves PNGs of all windows four seconds after launch.
 - `GRAFIT_DEBUG_ACTION` opens a dialog on launch. It accepts `commit`, `stash`, `conflicts`, `rebase`, `reword`, `clone`, `settings` or `select:<row>`.
+
+## License
+
+Grafit is released under the [MIT License](LICENSE).
