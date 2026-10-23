@@ -56,7 +56,7 @@ config, SSH keys and credential helpers. Its workflow is inspired by
 ## Build and install
 
 ```bash
-git clone https://github.com/<you>/grafit.git
+git clone https://github.com/Darxie/grafit.git
 cd grafit
 scripts/bundle.sh --install
 ```
