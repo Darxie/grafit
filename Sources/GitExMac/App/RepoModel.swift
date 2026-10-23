@@ -89,6 +89,12 @@ final class RepoModel {
         }
     }
 
+    /// Branch, working tree status and pending operation only (for inactive tabs).
+    func refreshSummary() async {
+        currentBranch = await repo.currentBranch()
+        await refreshStatus()
+    }
+
     func refreshStatus() async {
         status = (try? await repo.status()) ?? status
         pendingOperation = await repo.pendingOperation()

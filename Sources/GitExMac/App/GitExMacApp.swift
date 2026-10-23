@@ -6,18 +6,19 @@ struct GitExMacApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
 
     var body: some Scene {
-        WindowGroup("Git Extensions", for: String.self) { $path in
-            RootView(path: $path)
+        Window("Git Extensions", id: "main") {
+            MainWindowView(tabs: TabsModel.shared)
         }
         .defaultSize(width: 1400, height: 900)
         .commands {
-            RepoCommands()
+            RepoCommands(tabs: TabsModel.shared)
         }
     }
 }
 
 final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
+        NSWindow.allowsAutomaticWindowTabbing = false
         NSApp.setActivationPolicy(.regular)
         NSApp.activate(ignoringOtherApps: true)
         Appearance.apply()
@@ -39,6 +40,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { true }
+
+    /// Folders dropped on the Dock icon or opened with `open -a GitExMac <folder>` become tabs.
+    func application(_ application: NSApplication, open urls: [URL]) {
+        Task { @MainActor in
+            for url in urls { await TabsModel.shared.open(url) }
+        }
+    }
 }
 
 /// App-wide appearance; dark unless the user switched it off in the View menu.
@@ -94,59 +102,37 @@ func chooseRepositoryFolder() -> URL? {
     return panel.runModal() == .OK ? panel.url : nil
 }
 
-struct RootView: View {
-    @Binding var path: String?
-    @State private var model: RepoModel?
-    @State private var openError: String?
+/// The single main window: repository tabs on top, the selected repository below.
+struct MainWindowView: View {
+    @Bindable var tabs: TabsModel
 
     var body: some View {
-        Group {
-            if let model {
-                RepoView(model: model, onClose: { path = nil })
+        VStack(spacing: 0) {
+            if !tabs.tabs.isEmpty {
+                TabBarView(tabs: tabs)
+            }
+            if let model = tabs.selected {
+                RepoView(model: model, onClose: { tabs.close(model.id) })
+                    .id(model.id)
                     .navigationTitle(model.name)
                     .navigationSubtitle(model.repo.url.path)
             } else {
-                WelcomeView(open: { open($0) }, error: openError)
+                WelcomeView(open: { url in Task { await tabs.open(url) } }, error: tabs.openError)
                     .navigationTitle("Git Extensions")
             }
         }
-        .task(id: path) {
-            await load()
-        }
-    }
-
-    private func open(_ url: URL) {
-        Task {
-            guard let top = await GitRepository.findTopLevel(of: url) else {
-                openError = "\(url.path) is not a git repository."
-                return
+        .frame(minWidth: 900, minHeight: 550)
+        .task {
+            // Keep branch / change counts of all tabs fresh while the app is running.
+            while !Task.isCancelled {
+                try? await Task.sleep(for: .seconds(15))
+                if NSApp.isActive { await tabs.refreshSummaries() }
             }
-            openError = nil
-            path = top.path
+        }
+        .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
+            Task { await tabs.refreshSummaries() }
         }
     }
-
-    private func load() async {
-        if path == nil, model == nil, let arg = RecentRepos.launchArgument, !LaunchState.consumedArgument {
-            LaunchState.consumedArgument = true
-            open(URL(fileURLWithPath: arg))
-            return
-        }
-        guard let path else {
-            model = nil
-            return
-        }
-        if model?.repo.url.path == path { return }
-        RecentRepos.add(path)
-        let newModel = RepoModel(url: URL(fileURLWithPath: path))
-        model = newModel
-        await newModel.reload()
-    }
-}
-
-@MainActor
-enum LaunchState {
-    static var consumedArgument = false
 }
 
 // MARK: - Menu commands
@@ -173,8 +159,8 @@ struct RepoActions {
 }
 
 struct RepoCommands: Commands {
+    let tabs: TabsModel
     @FocusedValue(\.repoActions) private var actions
-    @Environment(\.openWindow) private var openWindow
     @AppStorage(Appearance.key) private var darkMode = true
 
     var body: some Commands {
@@ -183,19 +169,33 @@ struct RepoCommands: Commands {
                 .keyboardShortcut("d", modifiers: [.command, .shift])
                 .onChange(of: darkMode) { _, _ in Appearance.apply() }
         }
-        CommandGroup(after: .newItem) {
-            Button("Open Repository…") {
-                if let url = chooseRepositoryFolder() {
-                    Task {
-                        if let top = await GitRepository.findTopLevel(of: url) {
-                            openWindow(value: top.path)
-                        }
-                    }
+        CommandGroup(replacing: .newItem) {
+            Button("New Tab…") { tabs.openWithPanel() }
+                .keyboardShortcut("t")
+            Button("Open Repository…") { tabs.openWithPanel() }
+                .keyboardShortcut("o")
+        }
+        CommandGroup(replacing: .saveItem) {
+            Button("Close Tab") {
+                if let id = tabs.selectedId {
+                    tabs.close(id)
+                } else {
+                    NSApp.keyWindow?.performClose(nil)
                 }
             }
-            .keyboardShortcut("o")
-            Button("Close Repository") { actions?.close() }
-                .disabled(actions == nil)
+            .keyboardShortcut("w")
+        }
+        CommandGroup(before: .windowList) {
+            Button("Show Next Tab") { tabs.selectNext(1) }
+                .keyboardShortcut(.tab, modifiers: .control)
+            Button("Show Previous Tab") { tabs.selectNext(-1) }
+                .keyboardShortcut(.tab, modifiers: [.control, .shift])
+            ForEach(0..<9) { i in
+                Button("Tab \(i + 1)") { tabs.select(index: i) }
+                    .keyboardShortcut(KeyEquivalent(Character("\(i + 1)")), modifiers: .command)
+                    .disabled(i >= tabs.tabs.count)
+            }
+            Divider()
         }
         CommandMenu("Repository") {
             Button("Refresh") { actions?.refresh() }

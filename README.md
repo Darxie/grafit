@@ -7,13 +7,16 @@ A personal, native SwiftUI take on [Git Extensions](https://gitextensions.github
 ```bash
 scripts/bundle.sh             # builds build/GitExMac.app
 scripts/bundle.sh --install   # also copies it to /Applications
+swift scripts/make-icon.swift  # re-renders Resources/AppIcon.icns
 swift test                    # line staging, status/log parsing, graph layout
 ```
 
-Open a repo from the welcome screen, with ⌘O, or from the terminal:
+Repositories open as tabs in one window (⌘T / ⌘O to add, ⌘W to close, ⌃Tab / ⌘1…9 to switch).
+Each tab shows the current branch and the number of changed files; open tabs are restored on launch.
+From the terminal (or by dropping a folder on the Dock icon):
 
 ```bash
-open -a /Applications/GitExMac.app --args /path/to/repo
+open -a GitExMac /path/to/repo
 ```
 
 ## Features
