@@ -253,10 +253,10 @@ struct RepoView: View {
         }
     }
 
-    /// GITEXMAC_DEBUG_ACTION opens a dialog on launch (development / screenshots):
+    /// GRAFIT_DEBUG_ACTION opens a dialog on launch (development / screenshots):
     /// commit, stash, conflicts, rebase, reword, clone, settings, select:<row>.
     private func runDebugAction() async {
-        guard let action = ProcessInfo.processInfo.environment["GITEXMAC_DEBUG_ACTION"] else { return }
+        guard let action = ProcessInfo.processInfo.environment["GRAFIT_DEBUG_ACTION"] else { return }
         while model.commits.isEmpty { try? await Task.sleep(for: .milliseconds(100)) }
         let commits = model.commits
         switch action {

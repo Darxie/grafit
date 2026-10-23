@@ -2,11 +2,15 @@ import AppKit
 import SwiftUI
 
 @main
-struct GitExMacApp: App {
+struct GrafitApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
 
+    init() {
+        SettingsMigration.run()
+    }
+
     var body: some Scene {
-        Window("Git Extensions", id: "main") {
+        Window("Grafit", id: "main") {
             MainWindowView(tabs: TabsModel.shared)
         }
         .defaultSize(width: 1400, height: 900)
@@ -29,9 +33,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         scheduleDebugSnapshot()
     }
 
-    /// GITEXMAC_SNAPSHOT=/path/prefix writes PNGs of all windows after a few seconds (for development).
+    /// GRAFIT_SNAPSHOT=/path/prefix writes PNGs of all windows after a few seconds (for development).
     private func scheduleDebugSnapshot() {
-        guard let prefix = ProcessInfo.processInfo.environment["GITEXMAC_SNAPSHOT"] else { return }
+        guard let prefix = ProcessInfo.processInfo.environment["GRAFIT_SNAPSHOT"] else { return }
         DispatchQueue.main.asyncAfter(deadline: .now() + 4) {
             for (i, window) in NSApp.windows.enumerated() where window.isVisible {
                 guard let view = window.contentView?.superview ?? window.contentView,
@@ -45,10 +49,26 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { true }
 
-    /// Folders dropped on the Dock icon or opened with `open -a GitExMac <folder>` become tabs.
+    /// Folders dropped on the Dock icon or opened with `open -a Grafit <folder>` become tabs.
     func application(_ application: NSApplication, open urls: [URL]) {
         Task { @MainActor in
             for url in urls { await TabsModel.shared.open(url) }
+        }
+    }
+}
+
+/// Copies preferences (open tabs, recent repositories, column widths, ...) from the app's
+/// previous bundle identifier `local.gitexmac` once.
+enum SettingsMigration {
+    private static let doneKey = "migratedFromGitExMac"
+
+    static func run() {
+        let defaults = UserDefaults.standard
+        guard !defaults.bool(forKey: doneKey) else { return }
+        defaults.set(true, forKey: doneKey)
+        guard let old = defaults.persistentDomain(forName: "local.gitexmac") else { return }
+        for (key, value) in old where !key.hasPrefix("NS") && !key.hasPrefix("Apple") && defaults.object(forKey: key) == nil {
+            defaults.set(value, forKey: key)
         }
     }
 }
@@ -87,7 +107,7 @@ enum RecentRepos {
         UserDefaults.standard.set(all.filter { $0 != path }, forKey: key)
     }
 
-    /// Path passed on the command line (`GitExMac.app/Contents/MacOS/GitExMac /path/to/repo`).
+    /// Path passed on the command line (`Grafit.app/Contents/MacOS/Grafit /path/to/repo`).
     static var launchArgument: String? {
         let args = CommandLine.arguments.dropFirst().filter { !$0.hasPrefix("-") }
         guard let first = args.first else { return nil }
@@ -125,7 +145,7 @@ struct MainWindowView: View {
                             clone: { tabs.showClone = true },
                             create: { tabs.initWithPanel() },
                             error: tabs.openError)
-                    .navigationTitle("Git Extensions")
+                    .navigationTitle("Grafit")
             }
         }
         .frame(minWidth: 900, minHeight: 550)

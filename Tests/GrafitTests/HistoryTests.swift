@@ -1,5 +1,5 @@
 import XCTest
-@testable import GitExMac
+@testable import Grafit
 
 /// Stash, conflicts, interactive rebase, reword, clone/init and config against real git repos.
 final class HistoryTests: XCTestCase {
@@ -8,7 +8,7 @@ final class HistoryTests: XCTestCase {
     private var repo: GitRepository!
 
     override func setUp() async throws {
-        root = FileManager.default.temporaryDirectory.appendingPathComponent("gitexmac-hist-\(UUID().uuidString)")
+        root = FileManager.default.temporaryDirectory.appendingPathComponent("grafit-hist-\(UUID().uuidString)")
         dir = root.appendingPathComponent("repo")
         try await GitRepository.initRepository(at: dir)
         repo = GitRepository(url: dir)

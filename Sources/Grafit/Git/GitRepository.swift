@@ -443,7 +443,7 @@ struct GitRepository {
     /// Runs `git rebase -i` non-interactively with a prepared todo list.
     /// Rewording is done with `exec git commit --amend -F <file>` so no editor is needed.
     func interactiveRebase(base: String?, steps: [RebaseStep]) async throws -> String {
-        let dir = FileManager.default.temporaryDirectory.appendingPathComponent("gitexmac-rebase-\(UUID().uuidString)")
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent("grafit-rebase-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: dir) }
 

@@ -10,9 +10,9 @@ struct WelcomeView: View {
     var body: some View {
         HStack(spacing: 0) {
             VStack(alignment: .leading, spacing: 16) {
-                Text("Git Extensions")
+                Text("Grafit")
                     .font(.largeTitle.bold())
-                Text("for macOS")
+                Text("A Git client for macOS")
                     .foregroundStyle(.secondary)
                 Button {
                     if let url = chooseRepositoryFolder() { open(url) }

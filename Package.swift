@@ -2,17 +2,17 @@
 import PackageDescription
 
 let package = Package(
-    name: "GitExMac",
+    name: "Grafit",
     platforms: [.macOS(.v14)],
     targets: [
         .executableTarget(
-            name: "GitExMac",
-            path: "Sources/GitExMac"
+            name: "Grafit",
+            path: "Sources/Grafit"
         ),
         .testTarget(
-            name: "GitExMacTests",
-            dependencies: ["GitExMac"],
-            path: "Tests/GitExMacTests"
+            name: "GrafitTests",
+            dependencies: ["Grafit"],
+            path: "Tests/GrafitTests"
         ),
     ],
     swiftLanguageModes: [.v5]

@@ -1,12 +1,12 @@
 import XCTest
-@testable import GitExMac
+@testable import Grafit
 
-final class GitExMacTests: XCTestCase {
+final class GrafitTests: XCTestCase {
     private var dir: URL!
     private var repo: GitRepository!
 
     override func setUp() async throws {
-        dir = FileManager.default.temporaryDirectory.appendingPathComponent("gitexmac-\(UUID().uuidString)")
+        dir = FileManager.default.temporaryDirectory.appendingPathComponent("grafit-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         repo = GitRepository(url: dir)
         try await repo.git.run(["init", "-q", "-b", "main"])
