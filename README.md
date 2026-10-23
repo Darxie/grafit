@@ -50,10 +50,41 @@ config, SSH keys and credential helpers. Its workflow is inspired by
 
 ## Requirements
 
-- macOS 14 Sonoma or later
-- Xcode command line tools (provides `git` and `swift`)
+- macOS 14 Sonoma or later, on Apple Silicon or Intel
+- `git` (included with the Xcode command line tools: `xcode-select --install`)
 
-## Build and install
+## Install
+
+1. Download `Grafit-<version>.dmg` from the [latest release](https://github.com/Darxie/grafit/releases/latest).
+2. Open the DMG and drag **Grafit** to **Applications**.
+
+### First launch
+
+Grafit is not signed with an Apple Developer ID or notarized yet, so on first launch macOS shows a
+warning such as *"Apple could not verify Grafit is free of malware"* and refuses to open it.
+You only need to allow it once, in one of two ways:
+
+- **System Settings:** try to open Grafit once, then go to **System Settings → Privacy & Security**,
+  scroll down to the message about Grafit and click **Open Anyway**. Confirm with your password.
+- **Terminal:** remove the download quarantine flag:
+
+  ```bash
+  xattr -dr com.apple.quarantine /Applications/Grafit.app
+  ```
+
+After that Grafit opens normally, including after updates installed the same way.
+
+## Usage
+
+Open a repository from the app (⌘O), from the terminal, or by dropping a folder on the Dock icon:
+
+```bash
+open -a Grafit ~/code/my-project
+```
+
+## Build from source
+
+Requires the Xcode command line tools (`swift`).
 
 ```bash
 git clone https://github.com/Darxie/grafit.git
@@ -62,12 +93,12 @@ scripts/bundle.sh --install
 ```
 
 This builds a release binary, wraps it in `build/Grafit.app` and copies it to `/Applications`.
-The app is ad-hoc signed. If macOS refuses to open it, right-click it in Finder and choose **Open**.
+Apps you build yourself are not quarantined, so they open without the warning above.
 
-Open a repository from the app (⌘O), from the terminal, or by dropping a folder on the Dock icon:
+To create a release DMG (universal binary for Apple Silicon and Intel):
 
 ```bash
-open -a Grafit ~/code/my-project
+VERSION=0.1.0 scripts/make-dmg.sh   # writes build/Grafit-0.1.0.dmg
 ```
 
 ## Keyboard shortcuts
